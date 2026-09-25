@@ -150,7 +150,7 @@ function App() {
               <div className="drawer-list">
                 {cart.map((item, i) => (
                   <div className="drawer-item" key={i}>
-                    <img src={item.image.startsWith('http') ? item.image : API + item.image} alt={item.name} />
+                    <img src={item.image ? (item.image.startsWith('http') ? item.image : API + item.image) : ''} alt={item.name} />
                     <div className="drawer-info">
                       <h4>{item.name}</h4>
                       <p className="price">${parseFloat(item.price).toFixed(2)}</p>
@@ -300,7 +300,7 @@ function App() {
         <div className="product-grid">
           {filtered.map(p => (
             <div key={p.id} className="product-card">
-              <img src={p.image.startsWith('http') ? p.image : API + p.image} alt={p.name} />
+              <img src={p.image ? (p.image.startsWith('http') ? p.image : API + p.image) : ''} alt={p.name} />
               <div className="card-body">
                 <div className="card-top">
                   <div>
