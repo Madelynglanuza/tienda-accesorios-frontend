@@ -25,17 +25,63 @@ function App() {
   const [showCart, setShowCart] = useState(false);
   const [toast, setToast] = useState('');
 
+  // Autenticación
+  const [token, setToken] = useState(localStorage.getItem('token') || '');
+  const [authMode, setAuthMode] = useState('login'); // 'login' o 'register'
+  const [email, setEmail] = useState('');
+  const [password, setPassword] = useState('');
+  const [authError, setAuthError] = useState('');
+
   const showToast = (msg) => {
     setToast(msg);
     setTimeout(() => setToast(''), 2500);
   };
 
-  useEffect(() => {
-    fetch(API + '/api/products')
+  const handleAuth = (e) => {
+    e.preventDefault();
+    const url = authMode === 'login' ? API + '/api/login' : API + '/api/register';
+    fetch(url, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ email, password })
+    })
       .then(res => res.json())
-      .then(data => { setProducts(data); setLoading(false); })
+      .then(data => {
+        if (data.token) {
+          setToken(data.token);
+          localStorage.setItem('token', data.token);
+          setAuthError('');
+        } else {
+          setAuthError(data.error || 'Error de autenticación');
+        }
+      })
+      .catch(() => setAuthError('No se pudo conectar al servidor'));
+  };
+
+  const logout = () => {
+    setToken('');
+    localStorage.removeItem('token');
+    setCart([]);
+  };
+
+  useEffect(() => {
+    if (!token) return;
+    fetch(API + '/api/products', {
+      headers: { 'Authorization': 'Bearer ' + token }
+    })
+      .then(res => {
+        if (res.status === 401) {
+          setToken('');
+          localStorage.removeItem('token');
+          return null;
+        }
+        return res.json();
+      })
+      .then(data => {
+        if (data) { setProducts(data); setLoading(false); }
+      })
       .catch(() => setLoading(false));
-  }, []);
+  }, [token]);
 
   const addProduct = (e) => {
     e.preventDefault();
@@ -47,6 +93,7 @@ function App() {
 
     fetch(API + '/api/products', {
       method: 'POST',
+      headers: { 'Authorization': 'Bearer ' + token },
       body: formData
     })
       .then(res => res.json())
@@ -58,7 +105,10 @@ function App() {
   };
 
   const deleteProduct = (id) => {
-    fetch(API + `/api/products/${id}`, { method: 'DELETE' })
+    fetch(API + `/api/products/${id}`, {
+      method: 'DELETE',
+      headers: { 'Authorization': 'Bearer ' + token }
+    })
       .then(() => setProducts(products.filter(p => p.id !== id)));
   };
 
@@ -81,6 +131,7 @@ function App() {
 
     fetch(API + `/api/products/${editId}`, {
       method: 'PUT',
+      headers: { 'Authorization': 'Bearer ' + token },
       body: formData
     })
       .then(res => res.json())
@@ -108,6 +159,64 @@ function App() {
     ? products
     : products.filter(p => p.category === category);
 
+  // PANTALLA DE LOGIN si no hay token
+  if (!token) {
+    return (
+      <div className="App">
+        <header className="header">
+          <div>
+            <p className="kicker">DETALLES QUE ILUMINAN</p>
+            <h1>Tienda de Accesorios</h1>
+            <p className="subtitle">Inicia sesión para ver la tienda.</p>
+          </div>
+        </header>
+
+        <section className="panel add-panel">
+          <div className="panel-heading">
+            <div className="icon-circle">
+              <svg className="icon-md" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                <rect x="3" y="11" width="18" height="11" rx="2" />
+                <path d="M7 11V7a5 5 0 0 1 10 0v4" />
+              </svg>
+            </div>
+            <div>
+              <h2>{authMode === 'login' ? 'Iniciar sesión' : 'Crear cuenta'}</h2>
+              <p className="panel-copy">
+                {authMode === 'login' ? 'Accede para ver la tienda' : 'Regístrate para comenzar'}
+              </p>
+            </div>
+          </div>
+          <form className="add-form" onSubmit={handleAuth}>
+            <div>
+              <label>Email</label>
+              <input type="email" value={email} onChange={e => setEmail(e.target.value)} required />
+            </div>
+            <div>
+              <label>Contraseña</label>
+              <input type="password" value={password} onChange={e => setPassword(e.target.value)} required />
+            </div>
+            {authError && <p style={{ color: '#c0392b', fontWeight: 600 }}>{authError}</p>}
+            <div className="submit-cell">
+              <button type="submit" className="btn-purple">
+                {authMode === 'login' ? 'Entrar' : 'Registrarme'}
+              </button>
+            </div>
+            <p className="panel-copy">
+              {authMode === 'login' ? '¿No tienes cuenta? ' : '¿Ya tienes cuenta? '}
+              <button
+                type="button"
+                className="btn-cancel"
+                onClick={() => setAuthMode(authMode === 'login' ? 'register' : 'login')}
+              >
+                {authMode === 'login' ? 'Regístrate' : 'Inicia sesión'}
+              </button>
+            </p>
+          </form>
+        </section>
+      </div>
+    );
+  }
+
   if (loading) return <div className="loading">Cargando catálogo...</div>;
 
   return (
@@ -118,6 +227,7 @@ function App() {
           <h1>Tienda de Accesorios</h1>
           <p className="subtitle">Una selección especial de piezas para expresar tu estilo cada día.</p>
         </div>
+        <button className="btn-cancel" onClick={logout}>Cerrar sesión</button>
       </header>
 
       <section className="panel cart">
@@ -150,7 +260,7 @@ function App() {
               <div className="drawer-list">
                 {cart.map((item, i) => (
                   <div className="drawer-item" key={i}>
-                    <img src={item.image.startsWith('http') ? item.image : API + item.image} alt={item.name} />
+                    <img src={item.image ? (item.image.startsWith('http') ? item.image : API + item.image) : ''} alt={item.name} />
                     <div className="drawer-info">
                       <h4>{item.name}</h4>
                       <p className="price">${parseFloat(item.price).toFixed(2)}</p>
@@ -300,7 +410,7 @@ function App() {
         <div className="product-grid">
           {filtered.map(p => (
             <div key={p.id} className="product-card">
-              <img src={p.image.startsWith('http') ? p.image : API + p.image} alt={p.name} />
+              <img src={p.image ? (p.image.startsWith('http') ? p.image : API + p.image) : ''} alt={p.name} />
               <div className="card-body">
                 <div className="card-top">
                   <div>
