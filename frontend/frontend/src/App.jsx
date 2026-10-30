@@ -32,9 +32,35 @@ function App() {
   const [password, setPassword] = useState('');
   const [authError, setAuthError] = useState('');
 
+  // ===== NUEVO: Panel de administración =====
+  const [view, setView] = useState('store'); // 'store' o 'admin'
+  const [adminTab, setAdminTab] = useState('reportes'); // 'reportes', 'usuarios', 'comprobante'
+  const [stats, setStats] = useState(null);
+  const [users, setUsers] = useState([]);
+  const [purchases, setPurchases] = useState([]);
+  const [purchaseForm, setPurchaseForm] = useState({ clientName: '', productId: '', paymentMethod: 'Efectivo' });
+
   const showToast = (msg) => {
     setToast(msg);
     setTimeout(() => setToast(''), 2500);
+  };
+
+  // ===== NUEVO: Cargar datos de administración =====
+  const loadAdminData = () => {
+    fetch(API + '/api/stats', { headers: { 'Authorization': 'Bearer ' + token } })
+      .then(res => res.json())
+      .then(setStats)
+      .catch(() => showToast('No se pudieron cargar los reportes'));
+
+    fetch(API + '/api/users', { headers: { 'Authorization': 'Bearer ' + token } })
+      .then(res => res.json())
+      .then(setUsers)
+      .catch(() => showToast('No se pudieron cargar los usuarios'));
+
+    fetch(API + '/api/purchases', { headers: { 'Authorization': 'Bearer ' + token } })
+      .then(res => res.json())
+      .then(setPurchases)
+      .catch(() => showToast('No se pudieron cargar los comprobantes'));
   };
 
   const handleAuth = (e) => {
@@ -62,6 +88,7 @@ function App() {
     setToken('');
     localStorage.removeItem('token');
     setCart([]);
+    setView('store');
   };
 
   useEffect(() => {
@@ -82,6 +109,11 @@ function App() {
       })
       .catch(() => setLoading(false));
   }, [token]);
+
+  // ===== NUEVO: Cargar datos admin al entrar a la vista =====
+  useEffect(() => {
+    if (view === 'admin' && token) loadAdminData();
+  }, [view, token]);
 
   const addProduct = (e) => {
     e.preventDefault();
@@ -159,6 +191,47 @@ function App() {
     ? products
     : products.filter(p => p.category === category);
 
+  // ===== NUEVO: Generar comprobante =====
+  const generatePurchase = (e) => {
+    e.preventDefault();
+    fetch(API + '/api/purchase', {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'Authorization': 'Bearer ' + token
+      },
+      body: JSON.stringify(purchaseForm)
+    })
+      .then(res => res.json())
+      .then(purchase => {
+        if (purchase.error) return showToast(purchase.error);
+        setPurchases([purchase, ...purchases]);
+        setPurchaseForm({ clientName: '', productId: '', paymentMethod: 'Efectivo' });
+        showToast('🧾 Comprobante ' + purchase.receipt_number + ' generado');
+      })
+      .catch(() => showToast('No se pudo generar el comprobante'));
+  };
+
+  const downloadCSV = () => {
+    if (!stats) return;
+    const rows = [
+      ['Métrica', 'Valor'],
+      ['Total productos', stats.totalProducts],
+      ['Total usuarios', stats.totalUsers],
+      ['Total compras', stats.totalPurchases],
+      ...stats.byCategory.map(c => ['Productos en ' + c.category, c.count])
+    ];
+    const csv = rows.map(r => r.join(',')).join('\n');
+    const blob = new Blob([csv], { type: 'text/csv' });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = 'reporte-tienda.csv';
+    a.click();
+    URL.revokeObjectURL(url);
+    showToast('📥 Reporte descargado');
+  };
+
   // PANTALLA DE LOGIN si no hay token
   if (!token) {
     return (
@@ -219,6 +292,244 @@ function App() {
 
   if (loading) return <div className="loading">Cargando catálogo...</div>;
 
+  // ===== NUEVO: Vista de ADMINISTRACIÓN =====
+  if (view === 'admin') {
+    return (
+      <div className="App">
+        <header className="header">
+          <div>
+            <p className="kicker">DETALLES QUE ILUMINAN</p>
+            <h1>Administración</h1>
+            <p className="subtitle">Gestiona los reportes, usuarios y comprobantes de tu tienda.</p>
+          </div>
+          <div className="header-actions">
+            <button className="btn-cancel" onClick={() => setView('store')}>← Volver a la tienda</button>
+            <button className="btn-cancel" onClick={logout}>Cerrar sesión</button>
+          </div>
+        </header>
+
+        <nav className="admin-tabs">
+          <button
+            className={adminTab === 'reportes' ? 'active' : ''}
+            onClick={() => setAdminTab('reportes')}
+          >📊 Reportes</button>
+          <button
+            className={adminTab === 'usuarios' ? 'active' : ''}
+            onClick={() => setAdminTab('usuarios')}
+          >👤 Usuarios</button>
+          <button
+            className={adminTab === 'comprobante' ? 'active' : ''}
+            onClick={() => setAdminTab('comprobante')}
+          >🧾 Comprobante</button>
+        </nav>
+
+        {/* SECCIÓN REPORTES */}
+        {adminTab === 'reportes' && (
+          <section className="panel admin-panel">
+            <div className="panel-heading">
+              <div className="icon-circle">
+                <svg className="icon-md" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                  <line x1="18" y1="20" x2="18" y2="10" />
+                  <line x1="12" y1="20" x2="12" y2="4" />
+                  <line x1="6" y1="20" x2="6" y2="14" />
+                </svg>
+              </div>
+              <div>
+                <h2>Reportes</h2>
+                <p className="panel-copy">Estadísticas generales de tu tienda.</p>
+              </div>
+            </div>
+
+            {!stats ? (
+              <p className="panel-copy">Cargando estadísticas...</p>
+            ) : (
+              <>
+                <div className="stat-grid">
+                  <div className="stat-card">
+                    <div className="stat-value">{stats.totalProducts}</div>
+                    <div className="stat-label">Productos</div>
+                  </div>
+                  <div className="stat-card">
+                    <div className="stat-value">{stats.totalUsers}</div>
+                    <div className="stat-label">Usuarios</div>
+                  </div>
+                  <div className="stat-card">
+                    <div className="stat-value">{stats.totalPurchases}</div>
+                    <div className="stat-label">Compras</div>
+                  </div>
+                </div>
+
+                <div className="report-block">
+                  <h3>Productos por categoría</h3>
+                  {stats.byCategory.length === 0 ? (
+                    <p className="panel-copy">Sin productos registrados.</p>
+                  ) : (
+                    <table className="admin-table">
+                      <thead>
+                        <tr><th>Categoría</th><th>Cantidad</th></tr>
+                      </thead>
+                      <tbody>
+                        {stats.byCategory.map((c, i) => (
+                          <tr key={i}><td>{c.category}</td><td>{c.count}</td></tr>
+                        ))}
+                      </tbody>
+                    </table>
+                  )}
+                </div>
+
+                <button className="btn-purple" onClick={downloadCSV} style={{ maxWidth: 260 }}>
+                  📥 Descargar reporte CSV
+                </button>
+              </>
+            )}
+          </section>
+        )}
+
+        {/* SECCIÓN USUARIOS */}
+        {adminTab === 'usuarios' && (
+          <section className="panel admin-panel">
+            <div className="panel-heading">
+              <div className="icon-circle">
+                <svg className="icon-md" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                  <path d="M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2" />
+                  <circle cx="9" cy="7" r="4" />
+                  <path d="M23 21v-2a4 4 0 0 0-3-3.87" />
+                  <path d="M16 3.13a4 4 0 0 1 0 7.75" />
+                </svg>
+              </div>
+              <div>
+                <h2>Usuarios</h2>
+                <p className="panel-copy">Usuarios registrados en la tienda.</p>
+              </div>
+            </div>
+
+            {users.length === 0 ? (
+              <p className="panel-copy">No hay usuarios registrados.</p>
+            ) : (
+              <table className="admin-table">
+                <thead>
+                  <tr><th>ID</th><th>Email</th><th>Fecha de registro</th></tr>
+                </thead>
+                <tbody>
+                  {users.map(u => (
+                    <tr key={u.id}>
+                      <td>{u.id}</td>
+                      <td>{u.email}</td>
+                      <td>{u.created_at ? new Date(u.created_at).toLocaleDateString() : '—'}</td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            )}
+          </section>
+        )}
+
+        {/* SECCIÓN COMPROBANTE */}
+        {adminTab === 'comprobante' && (
+          <>
+            <section className="panel admin-panel">
+              <div className="panel-heading">
+                <div className="icon-circle">
+                  <svg className="icon-md" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                    <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z" />
+                    <polyline points="14 2 14 8 20 8" />
+                    <line x1="16" y1="13" x2="8" y2="13" />
+                    <line x1="16" y1="17" x2="8" y2="17" />
+                  </svg>
+                </div>
+                <div>
+                  <h2>Generar comprobante</h2>
+                  <p className="panel-copy">Crea un comprobante de compra (baucher).</p>
+                </div>
+              </div>
+
+              <form className="add-form" onSubmit={generatePurchase}>
+                <div>
+                  <label>Nombre del cliente</label>
+                  <input
+                    placeholder="Ej. María López"
+                    value={purchaseForm.clientName}
+                    onChange={e => setPurchaseForm({ ...purchaseForm, clientName: e.target.value })}
+                    required
+                  />
+                </div>
+                <div>
+                  <label>Producto</label>
+                  <select
+                    value={purchaseForm.productId}
+                    onChange={e => setPurchaseForm({ ...purchaseForm, productId: e.target.value })}
+                    required
+                  >
+                    <option value="">Selecciona un producto</option>
+                    {products.map(p => (
+                      <option key={p.id} value={p.id}>{p.name} — ${parseFloat(p.price).toFixed(2)}</option>
+                    ))}
+                  </select>
+                </div>
+                <div>
+                  <label>Forma de pago</label>
+                  <select
+                    value={purchaseForm.paymentMethod}
+                    onChange={e => setPurchaseForm({ ...purchaseForm, paymentMethod: e.target.value })}
+                  >
+                    <option>Efectivo</option>
+                    <option>Tarjeta</option>
+                    <option>Transferencia</option>
+                  </select>
+                </div>
+                <div className="submit-cell">
+                  <button type="submit" className="btn-purple">🧾 Generar comprobante</button>
+                </div>
+              </form>
+            </section>
+
+            <section className="panel admin-panel">
+              <div className="panel-heading">
+                <div className="icon-circle">
+                  <svg className="icon-md" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                    <rect x="3" y="4" width="18" height="18" rx="2" />
+                    <line x1="16" y1="2" x2="16" y2="6" />
+                    <line x1="8" y1="2" x2="8" y2="6" />
+                    <line x1="3" y1="10" x2="21" y2="10" />
+                  </svg>
+                </div>
+                <div>
+                  <h2>Historial de comprobantes</h2>
+                  <p className="panel-copy">Comprobantes generados.</p>
+                </div>
+              </div>
+
+              {purchases.length === 0 ? (
+                <p className="panel-copy">Aún no hay comprobantes.</p>
+              ) : (
+                <table className="admin-table">
+                  <thead>
+                    <tr><th>N°</th><th>Cliente</th><th>Producto</th><th>Precio</th><th>Pago</th><th>Fecha</th></tr>
+                  </thead>
+                  <tbody>
+                    {purchases.map(p => (
+                      <tr key={p.id}>
+                        <td>{p.receipt_number}</td>
+                        <td>{p.client_name}</td>
+                        <td>{p.product_name}</td>
+                        <td>${parseFloat(p.price).toFixed(2)}</td>
+                        <td>{p.payment_method}</td>
+                        <td>{new Date(p.created_at).toLocaleDateString()}</td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              )}
+            </section>
+          </>
+        )}
+
+        {toast && <div className="toast">{toast}</div>}
+      </div>
+    );
+  }
+
+  // ===== VISTA DE LA TIENDA (original) =====
   return (
     <div className="App">
       <header className="header">
@@ -227,7 +538,10 @@ function App() {
           <h1>Tienda de Accesorios</h1>
           <p className="subtitle">Una selección especial de piezas para expresar tu estilo cada día.</p>
         </div>
-        <button className="btn-cancel" onClick={logout}>Cerrar sesión</button>
+        <div className="header-actions">
+          <button className="btn-cancel" onClick={() => setView('admin')}>⚙️ Administración</button>
+          <button className="btn-cancel" onClick={logout}>Cerrar sesión</button>
+        </div>
       </header>
 
       <section className="panel cart">
